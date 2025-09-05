@@ -20,7 +20,7 @@ const PricingItemSchema = new Schema({
   metadata: { type: Schema.Types.Mixed }
 }, { timestamps: true })
 
-PricingItemSchema.index({ key: 1 }, { unique: true })
+// Unique index already enforced by schema-level unique: true
 
 module.exports = mongoose.model('PricingItem', PricingItemSchema)
 

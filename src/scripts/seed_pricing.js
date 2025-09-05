@@ -106,7 +106,8 @@ async function upsertPricingItem(dbItem, stripeInfo) {
 }
 
 async function seedPricing() {
-  if (!process.env.MONGO_URI) throw new Error('MONGO_URI is not set')
+  const mongoUri = process.env.MONGO_URI || process.env.MONGODB_URI || process.env.DATABASE_URL
+  if (!mongoUri) throw new Error('MONGO_URI/MONGODB_URI/DATABASE_URL is not set')
   if (!process.env.STRIPE_SECRET_KEY) throw new Error('STRIPE_SECRET_KEY is not set')
 
   await connectDB()
