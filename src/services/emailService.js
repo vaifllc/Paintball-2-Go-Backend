@@ -57,33 +57,28 @@ class EmailService {
         return { success: false, error: 'Campaign not found' };
       }
 
-      // Get recipients based on campaign criteria
+      // Determine recipients based on campaign.recipientFilter
       let recipients = [];
+      const filter = campaign.recipientFilter || { type: 'all' };
 
-      if (campaign.recipients.all) {
-        const users = await User.find({
+      if (filter.type === 'all') {
+        recipients = await User.find({
           isActive: true,
           'subscriptions.newsletter': true
         }).select('email name');
-        recipients = users;
+      } else if (filter.type === 'selected' && Array.isArray(filter.selectedUsers) && filter.selectedUsers.length > 0) {
+        recipients = await User.find({
+          _id: { $in: filter.selectedUsers },
+          isActive: true
+        }).select('email name');
+      } else if (filter.type === 'tag' && Array.isArray(filter.tags) && filter.tags.length > 0) {
+        recipients = await User.find({
+          isActive: true,
+          tags: { $in: filter.tags }
+        }).select('email name');
       } else {
-        // Filter by specific criteria
-        const query = { isActive: true };
-
-        if (campaign.recipients.roles && campaign.recipients.roles.length > 0) {
-          query.role = { $in: campaign.recipients.roles };
-        }
-
-        if (campaign.recipients.tags && campaign.recipients.tags.length > 0) {
-          query.tags = { $in: campaign.recipients.tags };
-        }
-
-        if (campaign.recipients.membershipTiers && campaign.recipients.membershipTiers.length > 0) {
-          query.membershipTier = { $in: campaign.recipients.membershipTiers };
-        }
-
-        const users = await User.find(query).select('email name');
-        recipients = users;
+        // Fallback to no recipients
+        recipients = [];
       }
 
       // Update campaign status
@@ -92,9 +87,7 @@ class EmailService {
       await campaign.save();
 
       // Send emails
-      const emailPromises = recipients.map(user =>
-        this.sendEmail(user.email, campaign.subject, campaign.content)
-      );
+      const emailPromises = recipients.map(user => this.sendEmail(user.email, campaign.subject, campaign.content));
 
       const results = await Promise.allSettled(emailPromises);
 

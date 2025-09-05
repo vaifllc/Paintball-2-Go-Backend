@@ -75,6 +75,28 @@ This comprehensive guide will walk you through deploying your Node.js backend on
 
 ---
 
+## 🌐 Step 1.9: Configure DNS for the API Subdomain
+
+Point `api.paintball2go.net` to your EC2 server so clients can reach your API via a stable hostname.
+
+1) Find your EC2 Public IPv4 address in the EC2 console
+
+2) In your DNS provider (Route53/Cloudflare/GoDaddy/Namecheap):
+- Name/Host: `api`
+- Type: `A`
+- Value: `YOUR_PUBLIC_IP` (for example, 3.123.45.67)
+- TTL: 300 seconds
+
+3) Save and wait a few minutes for DNS propagation
+
+Verify from your local machine:
+```bash
+dig +short api.paintball2go.net
+# Should output your EC2 public IP
+```
+
+We will use `api.paintball2go.net` in the Nginx and SSL steps below.
+
 ## 🔑 Step 2: Connect to Your Instance
 
 ### 2.1 Get Connection Details
@@ -276,7 +298,7 @@ module.exports = {
   apps: [{
     name: 'paintball2go-backend',
     script: 'src/index.js',
-    cwd: '/var/www/paintball2go/apps/server',
+    cwd: '/var/www/paintball2go/Paintball-2-Go-Backend',
     instances: 1,
     autorestart: true,
     watch: false,
@@ -372,6 +394,59 @@ server {
 }
 ```
 
+### 6.1.1 Example Nginx configuration for api.paintball2go.net
+
+If you are using the API subdomain `api.paintball2go.net`, use this server block instead:
+
+```nginx
+server {
+    listen 80;
+    server_name api.paintball2go.net;
+
+    # Security headers
+    add_header X-Frame-Options "SAMEORIGIN" always;
+    add_header X-XSS-Protection "1; mode=block" always;
+    add_header X-Content-Type-Options "nosniff" always;
+    add_header Referrer-Policy "no-referrer-when-downgrade" always;
+
+    # Gzip compression
+    gzip on;
+    gzip_vary on;
+    gzip_min_length 1024;
+    gzip_proxied expired no-cache no-store private must-revalidate auth;
+    gzip_types text/plain text/css text/xml text/javascript application/x-javascript application/xml+rss application/javascript;
+
+    # API routes
+    location /api/ {
+        proxy_pass http://localhost:5000/api/;
+        proxy_http_version 1.1;
+        proxy_set_header Upgrade $http_upgrade;
+        proxy_set_header Connection 'upgrade';
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+        proxy_cache_bypass $http_upgrade;
+        proxy_read_timeout 86400;
+    }
+
+    # Health check
+    location /health {
+        proxy_pass http://localhost:5000/api/health;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+    }
+
+    # Root location (optional informational response)
+    location / {
+        return 200 'Paintball 2 Go API Server Running';
+        add_header Content-Type text/plain;
+    }
+}
+```
+
 ### 6.2 Enable the Site
 ```bash
 # Enable the site
@@ -399,8 +474,11 @@ sudo apt install -y certbot python3-certbot-nginx
 
 ### 7.2 Obtain SSL Certificate
 ```bash
-# Get SSL certificate (replace with your domain)
+# Get SSL certificate for your domain (generic)
 sudo certbot --nginx -d your-domain.com -d www.your-domain.com
+
+# OR for the API subdomain specifically
+sudo certbot --nginx -d api.paintball2go.net
 
 # Follow the prompts:
 # 1. Enter email address
@@ -553,19 +631,60 @@ sudo systemctl status mongod
 
 ### 10.1 Test Your API
 ```bash
-# Test health endpoint
+# Test health endpoint (generic domain)
 curl https://your-domain.com/health
 
-# Test API endpoints
+# Test API endpoints (generic domain)
 curl https://your-domain.com/api/health
 curl https://your-domain.com/api/faq
+
+# If using the API subdomain
+curl https://api.paintball2go.net/health
+curl https://api.paintball2go.net/api/health
+curl https://api.paintball2go.net/api/faq
 ```
 
 ### 10.2 Test from External Tools
 Use Postman or similar to test:
-- `GET https://your-domain.com/api/health`
-- `GET https://your-domain.com/api/faq`
-- `POST https://your-domain.com/api/auth/register`
+- `GET https://your-domain.com/api/health` or `GET https://api.paintball2go.net/api/health`
+- `GET https://your-domain.com/api/faq` or `GET https://api.paintball2go.net/api/faq`
+- `POST https://your-domain.com/api/auth/register` or `POST https://api.paintball2go.net/api/auth/register`
+
+---
+
+## 🔐 Step 3.6: Configure GitHub SSH to avoid password prompts
+
+Set up SSH access for Git so you can pull without entering your GitHub username/password each time.
+
+```bash
+# As ubuntu user on the server
+ssh-keygen -t ed25519 -C "your-email@example.com"
+# Press Enter to accept default path, optionally set a passphrase
+
+# Start ssh-agent and add your key
+eval "$(ssh-agent -s)"
+ssh-add ~/.ssh/id_ed25519
+
+# Print your public key and copy it
+cat ~/.ssh/id_ed25519.pub
+```
+
+1) Go to GitHub → Settings → SSH and GPG keys → New SSH key
+2) Paste the public key, save
+3) Test the connection:
+```bash
+ssh -T git@github.com
+# You should see a success message
+```
+
+4) Ensure your repository remote uses SSH URL (not HTTPS):
+```bash
+cd /var/www/paintball2go
+git remote -v
+git remote set-url origin git@github.com:yourusername/paintball-2-go-main.git
+```
+
+Now `git pull` will not prompt for your GitHub password.
 
 ---
 
